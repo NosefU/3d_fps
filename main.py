@@ -24,12 +24,12 @@ class TPlayer:
     def move_forward(self, distance):
         direction = (self._dir * pi) / 180
         self.x += cos(direction) * distance
-        self.y += sin(direction) * distance
+        self.y -= sin(direction) * distance
 
     def move_back(self, distance):
         direction = (self._dir * pi) / 180
         self.x -= cos(direction) * distance
-        self.y -= sin(direction) * distance
+        self.y += sin(direction) * distance
 
     # def get_dir_arrow(self):
     #     if self._dir// 306
@@ -83,9 +83,9 @@ def main_game(screen):
             if level_map[int(player.y) * map_width + int(player.x)] == '#':
                 player.move_forward(1)
         elif key == ord('d'):
-            player.dir += 1.5
-        elif key == ord('a'):
             player.dir -= 1.5
+        elif key == ord('a'):
+            player.dir += 1.5
 
         screen.addstr(int(player.y), int(player.x), '█')
         screen.addstr(20, 0, f'x={player.x: 5.2f} y={player.y: 5.2f} dir={player.dir:>5}')
