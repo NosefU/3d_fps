@@ -160,7 +160,7 @@ class Player:
 
 class Camera:
     def __init__(self, viewport_width, viewport_height, fov=60, depth=30.0):
-        self.fov = fov          # Угол обзора   старый 3.14159 / 3
+        self.fov = fov          # Угол обзора
         self.depth = depth      # Максимальная дистанция обзора
         self.vp_width, self.vp_height = viewport_width, viewport_height
 
@@ -180,19 +180,64 @@ class Camera:
                 # проверяем, не упёрся ли вектор в препятствие
                 elif level.is_wall(test_point):
                     wall_hit = True
+
             distances.append(distance_to_wall)
         return distances
+
+    def render_viewport(self, screen, player, level):
+        distances = self.raycast(player, level)
+        for x in range(0, self.vp_width):
+            # считаем высоту стены, которая зависит от расстояни до неё
+            y_top = int((self.vp_height / 2) - (self.vp_height / distances[x]))
+            y_bot = self.vp_height - y_top
+            # "красим" стену в зависимости от расстояния до неё
+            if distances[x] <= self.depth / 3:
+                wall_char = '█'
+            elif distances[x] < self.depth / 2:
+                wall_char = '▓'
+            elif distances[x] < self.depth / 1.5:
+                wall_char = '▒'
+            elif distances[x] < self.depth:
+                wall_char = '░'
+            else:
+                wall_char = ' '
+
+            for y in range(0, self.vp_height-1):
+                # потолок
+                if y in range(0, y_top):
+                    screen.addstr(y, x, ' ')
+
+                # рисуем стену
+                elif y in range(y_top, y_bot):
+                    screen.addstr(y, x, wall_char)
+
+                # рисуем пол
+                elif y >= y_bot:
+                    floor_dist = 1 - (y - self.vp_height / 2) / (self.vp_height / 2)
+                    if floor_dist < 0.25:
+                        screen.addstr(y, x, '#')
+                    elif floor_dist < 0.5:
+                        screen.addstr(y, x, 'x')
+                    elif floor_dist < 0.75:
+                        screen.addstr(y, x, '~')
+                    elif floor_dist < 0.9:
+                        screen.addstr(y, x, '-')
+                    else:
+                        screen.addstr(y, x, ' ')
+
+
+
 
 
 map_height = 16
 map_width = 16
 lvl_map = ("################"
            "#..............#"
-           "#....#######...#"
-           "#..........#...#"
-           "#..........#...#"
-           "#..........#...#"
-           "#..........#...#"
+           "#..............#"
+           "#..............#"
+           "#..............#"
+           "#......##......#"
+           "#......##......#"
            "#..............#"
            "#..............#"
            "#..............#"
@@ -209,13 +254,11 @@ def main_game(screen):
     viewport_height = curses.LINES
     key = 0
     level = Level(map_width, map_height, lvl_map)
-    player = Player(Point(5.0, 5.0), 0.0)
+    player = Player(Point(10.0, 5.0), 0.0)
     camera = Camera(viewport_width, viewport_height)
 
     while True:     # игровой цикл
         key = screen.getch()
-        for y in range(0, level.height):
-            screen.addstr(y, 0, level.get_row(y).replace('#', '█'))
         if key == ord('w'):
             player.move_forward(1)
             # если упёрлись в стену, то откатываем шаг
@@ -229,18 +272,17 @@ def main_game(screen):
             if level.is_wall(player.position):
                 player.move_forward(1)
         elif key == ord('d'):
-            player.dir -= 1.5
+            player.dir -= 5
         elif key == ord('a'):
-            player.dir += 1.5
+            player.dir += 5
 
-        distances = camera.raycast(player, level)
+        camera.render_viewport(screen, player, level)
 
+        for y in range(0, level.height):
+            screen.addstr(y, 0, level.get_row(y))
         screen.addstr(int(player.y), int(player.x), player.get_dir_arrow())
         screen.addstr(20, 0, f'x={player.x: 6.2f} y={player.y: 6.2f}')
         screen.addstr(21, 0, f'dir={player.dir:>5}')
-        for y in range(0, 30):
-            screen.addstr(y, 40, f'{distances[y]: 5.3f}')
-            # pass
         key = 0
         # sleep(1/30)
 
