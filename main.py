@@ -1,7 +1,8 @@
 import curses
-import simple_draw
-from math import sin, cos, pi, sqrt, atan
-from time import sleep
+from math import sin, cos, pi, sqrt, atan, fabs
+
+# import pydevd_pycharm
+# pydevd_pycharm.settrace('localhost', port=5678, stdoutToServer=True, stderrToServer=True)
 
 
 class Point:
@@ -12,19 +13,30 @@ class Point:
     def __str__(self):
         return f'{self.__class__.__name__}(x:{self.x}, y:{self.y})'
 
+    def __repr__(self):
+        return str(self)
+
 
 class Vector:
     """Класс математического вектора"""
 
-    def __init__(self, point, direction, length):
+    def __init__(self, point, direction=None, length=None, end_point=None):
         """
-            Создать вектор из точки start_point в направлении direction (градусы) длинной length
+            Создать вектор из точки start_point.
+            Задать вектор можно двумя способами: либо передав направление и длину, либо передав конечную точку
         """
         self.start_point = point
-        direction = (direction * pi) / 180
-        self.dx = cos(direction) * length
-        self.dy = -sin(direction) * length
-        self.module = length
+
+        if end_point:
+            self.dx = end_point.x - point.x
+            self.dy = end_point.y - point.y
+            self.module = self._determine_module()
+
+        else:
+            direction = (direction * pi) / 180
+            self.dx = cos(direction) * length
+            self.dy = -sin(direction) * length
+            self.module = length
 
     def _determine_module(self):
         return sqrt(self.dx ** 2 + self.dy ** 2)
@@ -46,38 +58,11 @@ class Vector:
                 angle += 180
         return angle
 
-    def add(self, vector2):
-        """Сложение векторов"""
-        self.dx += vector2.dx
-        self.dy += vector2.dy
-        self.module = self._determine_module()
-
     def __str__(self):
         return 'vector([%.2f,%.2f],{%.2f,%.2f})' % (self.dx, self.dy, self.angle, self.module)
 
     def __repr__(self):
         return str(self)
-
-    def __nonzero__(self):
-        """Проверка на пустоту"""
-        return int(self.module)
-
-    def multiply(self, factor):
-        """
-            Умножить вектор на скалярное число
-        """
-        self.dx *= factor
-        self.dy *= factor
-        self.module = self._determine_module()
-
-    def rotate(self, angle):
-        """
-            Повернуть вектор на угол
-        """
-        new_angle = self.angle + angle
-        self.dx = cos(new_angle) * self.module
-        self.dy = sin(new_angle) * self.module
-        self.module = self._determine_module()
 
     @property
     def length(self):
@@ -141,17 +126,10 @@ class Player:
         self.position.y = value
 
     def move_forward(self, distance):
-        # direction = (self._dir * pi) / 180
-        # endpoint = Vector(self.x, self.y, self.dir, distance)
         self.position = Vector(self.position, self.dir, distance).end_point
-        # self.x += cos(direction) * distance
-        # self.y -= sin(direction) * distance
 
     def move_back(self, distance):
         self.position = Vector(self.position, self.dir, -distance).end_point
-        # direction = (self._dir * pi) / 180
-        # self.x -= cos(direction) * distance
-        # self.y += sin(direction) * distance
 
     def get_dir_arrow(self):
         arrow_number = (self.dir + 22.5) // 45
@@ -159,51 +137,82 @@ class Player:
 
 
 class Camera:
-    def __init__(self, viewport_width, viewport_height, fov=60, depth=30.0):
-        self.fov = fov          # Угол обзора
-        self.depth = depth      # Максимальная дистанция обзора
+    def __init__(self, viewport_width, viewport_height, fov=60, depth=21.0):
+        self.fov = fov      # Угол обзора
+        self.depth = depth  # Максимальная дистанция обзора
         self.vp_width, self.vp_height = viewport_width, viewport_height
+        self.distances = []
+        self.edges = []
 
     def raycast(self, player, level):
-        distances = []
+        """
+        Бросаем лучи.
+        Разбиваем область видимости (fov) на количество участков, равное ширине экрана/вьюпорта.
+        Направлением начала отсчёта будет направление взгляда игрока минус половина области видимости.
+        И для каждой координаты x экрана/вьюпорта мы бросаем луч/вектор, последовательно увеличивая его длину.
+        Если луч попадает в стену, то записываем длину луча (расстояние до стены) в список и переходим к следующему x.
+        Если длина луча стала больше глубины прорисовки, а стену мы так и не нашли,
+        то добавляем в список значение глубины прорисовки.
+        """
+        self.distances = []
+        self.edges = []
         for x in range(0, self.vp_width):
             ray_angle = player.dir + (self.fov / 2) - (x / self.vp_width) * self.fov
             distance_to_wall = 0.0
             wall_hit = False
             while not wall_hit and distance_to_wall < self.depth:
                 distance_to_wall += 0.1
-                test_point = Vector(player.position, ray_angle, distance_to_wall).end_point
+                current_ray = Vector(player.position, ray_angle, distance_to_wall)
+                test_point = current_ray.end_point
                 # проверяем, не вышел ли вектор за карту
                 if not level.point_is_present(test_point):
-                    wall_hit = True
                     distance_to_wall = self.depth
-                # проверяем, не упёрся ли вектор в препятствие
+                # проверяем, не упёрся ли вектор в стену
                 elif level.is_wall(test_point):
                     wall_hit = True
 
-            distances.append(distance_to_wall)
-        return distances
+                """
+                Если нашли стену, то кидаем векторы до углов блока. 
+                Выбираем два самых "котортких" вектора и считаем угол между брошеным лучом и каждым из этих векторов.
+                Если угол меньше четверти градуса, то считаем, что в этой координате x находится грань блока.
+                """
+                if wall_hit:
+                    edge_vectors = []
+                    for block_x in range(0, 2):
+                        for block_y in range(0, 2):
+                            edge_pos = Point(int(test_point.x) + block_x, int(test_point.y) + block_y)
+                            edge_vector = Vector(player.position, end_point=edge_pos)
+                            edge_vectors.append(edge_vector)
 
-    def render_viewport(self, screen, player, level):
-        distances = self.raycast(player, level)
+                    edge_vectors.sort(key=lambda vector: vector.length)
+                    if (fabs(current_ray.angle - edge_vectors[0].angle) < 0.25
+                            or fabs(current_ray.angle - edge_vectors[1].angle) < 0.25):
+                        self.edges.append(x)
+
+            self.distances.append(distance_to_wall)
+
+    def render_viewport(self, screen):
         for x in range(0, self.vp_width):
             # считаем высоту стены, которая зависит от расстояни до неё
-            y_top = int((self.vp_height / 2) - (self.vp_height / distances[x]))
+            y_top = int((self.vp_height / 2) - (self.vp_height / self.distances[x]))
             y_bot = self.vp_height - y_top
+            # если x в списке с гранями, то вместо стены будем рисовать эту грань
+            if x in self.edges:
+                wall_char = '|'
             # "красим" стену в зависимости от расстояния до неё
-            if distances[x] <= self.depth / 3:
+            elif self.distances[x] <= self.depth / 3:
                 wall_char = '█'
-            elif distances[x] < self.depth / 2:
+            elif self.distances[x] < self.depth / 2:
                 wall_char = '▓'
-            elif distances[x] < self.depth / 1.5:
+            elif self.distances[x] < self.depth / 1.5:
                 wall_char = '▒'
-            elif distances[x] < self.depth:
+            elif self.distances[x] < self.depth:
                 wall_char = '░'
             else:
                 wall_char = ' '
 
-            for y in range(0, self.vp_height-1):
-                # потолок
+            for y in range(0, self.vp_height - 1):
+                # рисуем потолок
                 if y in range(0, y_top):
                     screen.addstr(y, x, ' ')
 
@@ -211,7 +220,7 @@ class Camera:
                 elif y in range(y_top, y_bot):
                     screen.addstr(y, x, wall_char)
 
-                # рисуем пол
+                # рисуем пол. В зависимости от высоты от низа используем те или иные символы
                 elif y >= y_bot:
                     floor_dist = 1 - (y - self.vp_height / 2) / (self.vp_height / 2)
                     if floor_dist < 0.25:
@@ -226,27 +235,31 @@ class Camera:
                         screen.addstr(y, x, ' ')
 
 
-
-
-
+# карта уровня
 map_height = 16
-map_width = 16
-lvl_map = ("################"
-           "#..............#"
-           "#..............#"
-           "#..............#"
-           "#..............#"
-           "#......##......#"
-           "#......##......#"
-           "#..............#"
-           "#..............#"
-           "#..............#"
-           "#..............#"
-           "#..............#"
-           "#..............#"
-           "#..............#"
-           "#..............#"
-           "################").replace('.', ' ')
+map_width = 25
+lvl_map = ("#########################"
+           "#.......................#"
+           "#....#########..........#"
+           "#............#..........#"
+           "#............#..........#"
+           "#............#..........#"
+           "#............#####......#"
+           "#....###................#"
+           "#....###.....#......##..#"
+           "#............#......##..#"
+           "#............#..........#"
+           "#............#..........#"
+           "#........########.......#"
+           "#.......................#"
+           "#.......................#"
+           "#########################").replace('.', ' ')
+
+
+def draw_minimap(screen, position, player, level):
+    for y in range(0, level.height):
+        screen.addstr(y + position.y, position.x, level.get_row(y))
+    screen.addstr(int(player.y) + position.y, int(player.x) + position.x, player.get_dir_arrow())
 
 
 def main_game(screen):
@@ -254,11 +267,10 @@ def main_game(screen):
     viewport_height = curses.LINES
     key = 0
     level = Level(map_width, map_height, lvl_map)
-    player = Player(Point(10.0, 5.0), 0.0)
+    player = Player(Point(22.0, 14.0), 90.0)
     camera = Camera(viewport_width, viewport_height)
 
-    while True:     # игровой цикл
-        key = screen.getch()
+    while True:  # игровой цикл
         if key == ord('w'):
             player.move_forward(1)
             # если упёрлись в стену, то откатываем шаг
@@ -276,15 +288,12 @@ def main_game(screen):
         elif key == ord('a'):
             player.dir += 5
 
-        camera.render_viewport(screen, player, level)
+        camera.raycast(player, level)
+        camera.render_viewport(screen)
 
-        for y in range(0, level.height):
-            screen.addstr(y, 0, level.get_row(y))
-        screen.addstr(int(player.y), int(player.x), player.get_dir_arrow())
-        screen.addstr(20, 0, f'x={player.x: 6.2f} y={player.y: 6.2f}')
-        screen.addstr(21, 0, f'dir={player.dir:>5}')
-        key = 0
-        # sleep(1/30)
+        draw_minimap(screen, Point(0, 1), player, level)
+        screen.addstr(0, 0, f'x={player.x: 6.2f} y={player.y: 6.2f} dir={player.dir:>5}')
+        key = screen.getch()
 
 
 curses.wrapper(main_game)
