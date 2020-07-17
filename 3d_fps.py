@@ -97,9 +97,11 @@ class Level:
 
 
 class Player:
-    def __init__(self, position, direction):
+    def __init__(self, position, direction, speed=1, turn_step=5):
         self.position = position
         self._dir = direction
+        self.speed = speed
+        self.turn_step = turn_step
 
     @property
     def dir(self):
@@ -125,11 +127,19 @@ class Player:
     def y(self, value):
         self.position.y = value
 
-    def move_forward(self, distance):
-        self.position = Vector(self.position, self.dir, distance).end_point
+    def move_forward(self, speed=None):
+        speed = speed if speed else self.speed
+        self.position = Vector(self.position, self.dir, speed).end_point
 
-    def move_back(self, distance):
-        self.position = Vector(self.position, self.dir, -distance).end_point
+    def move_back(self, speed=None):
+        speed = speed if speed else self.speed
+        self.position = Vector(self.position, self.dir, -speed).end_point
+
+    def turn_left(self, angle=None):
+        self.dir += angle if angle else self.turn_step
+
+    def turn_right(self, angle=None):
+        self.dir -= angle if angle else self.turn_step
 
     def get_dir_arrow(self):
         arrow_number = (self.dir + 22.5) // 45
@@ -141,7 +151,7 @@ class Camera:
         self.fov = fov      # Угол обзора
         self.depth = depth  # Максимальная дистанция обзора
         self.vp_width, self.vp_height = viewport_width, viewport_height
-        self.distances = []
+        self.z_buffer = []
         self.edges = []
 
     def raycast(self, player, level):
@@ -154,8 +164,9 @@ class Camera:
         Если длина луча стала больше глубины прорисовки, а стену мы так и не нашли,
         то добавляем в список значение глубины прорисовки.
         """
-        self.distances = []
+        self.z_buffer = []
         self.edges = []
+        prev_dist = None
         for x in range(0, self.vp_width):
             ray_angle = player.dir + (self.fov / 2) - (x / self.vp_width) * self.fov
             distance_to_wall = 0.0
@@ -171,11 +182,9 @@ class Camera:
                 elif level.is_wall(test_point):
                     wall_hit = True
 
-                """
-                Если нашли стену, то кидаем векторы до углов блока. 
-                Выбираем два самых "котортких" вектора и считаем угол между брошеным лучом и каждым из этих векторов.
-                Если угол меньше четверти градуса, то считаем, что в этой координате x находится грань блока.
-                """
+                # Если нашли стену, то кидаем векторы до углов блока.
+                # Выбираем два самых "котортких" вектора и считаем угол между брошеным лучом и каждым из этих векторов.
+                # Если угол меньше четверти градуса, то считаем, что в этой координате x находится грань блока.
                 if wall_hit:
                     edge_vectors = []
                     for block_x in range(0, 2):
@@ -187,26 +196,35 @@ class Camera:
                     edge_vectors.sort(key=lambda vector: vector.length)
                     if (fabs(current_ray.angle - edge_vectors[0].angle) < 0.25
                             or fabs(current_ray.angle - edge_vectors[1].angle) < 0.25):
+                        # pass
                         self.edges.append(x)
+            # если разница "длин" соседних лучей/расстояний до стены достаточно большая,
+            # то считаем, что более "короткий" луч попал в грань блока
+            if prev_dist:
+                if prev_dist - distance_to_wall > 1:
+                    self.edges.append(x)
+                elif prev_dist - distance_to_wall < -1:
+                    self.edges.append(x-1)
+            prev_dist = distance_to_wall
 
-            self.distances.append(distance_to_wall)
+            self.z_buffer.append(distance_to_wall)
 
     def render_viewport(self, screen):
         for x in range(0, self.vp_width):
             # считаем высоту стены, которая зависит от расстояни до неё
-            y_top = int((self.vp_height / 2) - (self.vp_height / self.distances[x]))
+            y_top = int((self.vp_height / 2) - (self.vp_height / self.z_buffer[x]))
             y_bot = self.vp_height - y_top
             # если x в списке с гранями, то вместо стены будем рисовать эту грань
-            if x in self.edges:
+            if x in self.edges and self.z_buffer[x] < self.depth:
                 wall_char = '|'
             # "красим" стену в зависимости от расстояния до неё
-            elif self.distances[x] <= self.depth / 3:
+            elif self.z_buffer[x] <= self.depth / 3:
                 wall_char = '█'
-            elif self.distances[x] < self.depth / 2:
+            elif self.z_buffer[x] < self.depth / 2:
                 wall_char = '▓'
-            elif self.distances[x] < self.depth / 1.5:
+            elif self.z_buffer[x] < self.depth / 1.5:
                 wall_char = '▒'
-            elif self.distances[x] < self.depth:
+            elif self.z_buffer[x] < self.depth:
                 wall_char = '░'
             else:
                 wall_char = ' '
@@ -215,11 +233,9 @@ class Camera:
                 # рисуем потолок
                 if y in range(0, y_top):
                     screen.addstr(y, x, ' ')
-
                 # рисуем стену
                 elif y in range(y_top, y_bot):
                     screen.addstr(y, x, wall_char)
-
                 # рисуем пол. В зависимости от высоты от низа используем те или иные символы
                 elif y >= y_bot:
                     floor_dist = 1 - (y - self.vp_height / 2) / (self.vp_height / 2)
@@ -233,6 +249,46 @@ class Camera:
                         screen.addstr(y, x, '-')
                     else:
                         screen.addstr(y, x, ' ')
+
+
+def draw_minimap(screen, position, player, level):
+    for y in range(0, level.height):
+        screen.addstr(y + position.y, position.x, level.get_row(y))
+    screen.addstr(int(player.y) + position.y, int(player.x) + position.x, player.get_dir_arrow())
+
+
+def main_game(screen):
+    viewport_width = curses.COLS
+    viewport_height = curses.LINES
+    key = 0
+    level = Level(map_width, map_height, lvl_map)
+    player = Player(Point(22.0, 14.0), 90.0)
+    camera = Camera(viewport_width, viewport_height)
+
+    while True:  # игровой цикл
+        if key == ord('w'):
+            player.move_forward()
+            # если упёрлись в стену, то откатываем шаг
+            # TODO Дописать условие, при котором игрок не перепрыгнет через стену
+            #  (проверка нахождения игрока за полем или перелёт через стену)
+            if level.is_wall(player.position):
+                player.move_back()
+        elif key == ord('s'):
+            player.move_back()
+            # если упёрлись в стену, то откатываем шаг
+            if level.is_wall(player.position):
+                player.move_forward()
+        elif key == ord('d'):
+            player.turn_right()
+        elif key == ord('a'):
+            player.turn_left()
+
+        camera.raycast(player, level)
+        camera.render_viewport(screen)
+
+        draw_minimap(screen, Point(0, 1), player, level)
+        screen.addstr(0, 0, f'x={player.x: 6.2f} y={player.y: 6.2f} dir={player.dir:>5}')
+        key = screen.getch()
 
 
 # карта уровня
@@ -254,46 +310,5 @@ lvl_map = ("#########################"
            "#.......................#"
            "#.......................#"
            "#########################").replace('.', ' ')
-
-
-def draw_minimap(screen, position, player, level):
-    for y in range(0, level.height):
-        screen.addstr(y + position.y, position.x, level.get_row(y))
-    screen.addstr(int(player.y) + position.y, int(player.x) + position.x, player.get_dir_arrow())
-
-
-def main_game(screen):
-    viewport_width = curses.COLS
-    viewport_height = curses.LINES
-    key = 0
-    level = Level(map_width, map_height, lvl_map)
-    player = Player(Point(22.0, 14.0), 90.0)
-    camera = Camera(viewport_width, viewport_height)
-
-    while True:  # игровой цикл
-        if key == ord('w'):
-            player.move_forward(1)
-            # если упёрлись в стену, то откатываем шаг
-            # TODO Дописать условие, при котором игрок не перепрыгнет через стену
-            #  (проверка нахождения игрока за полем или перелёт через стену)
-            if level.is_wall(player.position):
-                player.move_back(1)
-        elif key == ord('s'):
-            player.move_back(1)
-            # если упёрлись в стену, то откатываем шаг
-            if level.is_wall(player.position):
-                player.move_forward(1)
-        elif key == ord('d'):
-            player.dir -= 5
-        elif key == ord('a'):
-            player.dir += 5
-
-        camera.raycast(player, level)
-        camera.render_viewport(screen)
-
-        draw_minimap(screen, Point(0, 1), player, level)
-        screen.addstr(0, 0, f'x={player.x: 6.2f} y={player.y: 6.2f} dir={player.dir:>5}')
-        key = screen.getch()
-
 
 curses.wrapper(main_game)
