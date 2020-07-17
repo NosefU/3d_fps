@@ -154,6 +154,27 @@ class Camera:
         self.z_buffer = []
         self.edges = []
 
+    def cast_single_ray(self, level, origin, ray_angle, target='#', depth=None):
+        """
+        Метод вернёт вектор, направленный в сторону ray_angle;
+        модуль вектора будет равняться расстоянию от origin до target, если была найдена коллизия,
+        либо depth, если коллизии не было
+        """
+        depth = depth if depth else self.depth
+        distance_to_target = 0.0
+        target_hit = False
+        while not target_hit and distance_to_target < depth:
+            distance_to_target += 0.1
+            ray = Vector(origin, ray_angle, distance_to_target)
+            test_point = ray.end_point
+            # проверяем, не вышел ли вектор за карту
+            if not level.point_is_present(test_point):
+                distance_to_target = depth
+            # проверяем, не упёрся ли вектор в стену
+            elif level.is_wall(test_point):
+                target_hit = True
+        return ray
+
     def raycast(self, player, level):
         """
         Бросаем лучи.
@@ -169,35 +190,27 @@ class Camera:
         prev_dist = None
         for x in range(0, self.vp_width):
             ray_angle = player.dir + (self.fov / 2) - (x / self.vp_width) * self.fov
-            distance_to_wall = 0.0
-            wall_hit = False
-            while not wall_hit and distance_to_wall < self.depth:
-                distance_to_wall += 0.1
-                current_ray = Vector(player.position, ray_angle, distance_to_wall)
-                test_point = current_ray.end_point
-                # проверяем, не вышел ли вектор за карту
-                if not level.point_is_present(test_point):
-                    distance_to_wall = self.depth
-                # проверяем, не упёрся ли вектор в стену
-                elif level.is_wall(test_point):
-                    wall_hit = True
+            current_ray = self.cast_single_ray(level, player.position, ray_angle)
+            distance_to_wall = current_ray.length
+            wall_hit = current_ray.length < self.depth
 
-                # Если нашли стену, то кидаем векторы до углов блока.
-                # Выбираем два самых "котортких" вектора и считаем угол между брошеным лучом и каждым из этих векторов.
-                # Если угол меньше четверти градуса, то считаем, что в этой координате x находится грань блока.
-                if wall_hit:
-                    edge_vectors = []
-                    for block_x in range(0, 2):
-                        for block_y in range(0, 2):
-                            edge_pos = Point(int(test_point.x) + block_x, int(test_point.y) + block_y)
-                            edge_vector = Vector(player.position, end_point=edge_pos)
-                            edge_vectors.append(edge_vector)
+            # Если нашли стену (расстояние меньше, чем дальность прорисовки), то кидаем векторы до углов блока.
+            # Выбираем два самых "котортких" вектора и считаем угол между брошеным лучом и каждым из этих векторов.
+            # Если угол меньше четверти градуса, то считаем, что в этой координате x находится грань блока.
+            if wall_hit:
+                edge_vectors = []
+                for block_x in range(0, 2):
+                    for block_y in range(0, 2):
+                        test_point = current_ray.end_point
+                        edge_pos = Point(int(test_point.x) + block_x, int(test_point.y) + block_y)
+                        edge_vector = Vector(player.position, end_point=edge_pos)
+                        edge_vectors.append(edge_vector)
 
-                    edge_vectors.sort(key=lambda vector: vector.length)
-                    if (fabs(current_ray.angle - edge_vectors[0].angle) < 0.25
-                            or fabs(current_ray.angle - edge_vectors[1].angle) < 0.25):
-                        # pass
-                        self.edges.append(x)
+                edge_vectors.sort(key=lambda vector: vector.length)
+                if (fabs(current_ray.angle - edge_vectors[0].angle) < 0.25
+                        or fabs(current_ray.angle - edge_vectors[1].angle) < 0.25):
+                    # pass
+                    self.edges.append(x)
             # если разница "длин" соседних лучей/расстояний до стены достаточно большая,
             # то считаем, что более "короткий" луч попал в грань блока
             if prev_dist:
