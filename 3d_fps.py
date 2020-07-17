@@ -53,7 +53,7 @@ class Vector:
             else:
                 return 270
         else:
-            angle = atan(self.dy / self.dx) * (180 / pi)
+            angle = atan(-self.dy / self.dx) * (180 / pi)
             if self.dx < 0:
                 angle += 180
         return angle
@@ -207,14 +207,22 @@ class Camera:
                     self.edges.append(x-1)
             prev_dist = distance_to_wall
 
+            # если мы прямо сейчас добавим расстояние до стены в z-буфер,
+            # то получим на экране эффект лупы, поэтому умножим расстояние до стены
+            # на косинус угла отклонения луча
+            # TODO проблема в том, что при включении этой фичи геометрия выглядит более правильной,
+            #  но на краях стен начинают периодически появляться артефакты.
+            #  Если не нравится - закомментить следующую строку
+            distance_to_wall = distance_to_wall * cos((ray_angle - player.dir) * pi/180)
+
             self.z_buffer.append(distance_to_wall)
 
     def render_viewport(self, screen):
         for x in range(0, self.vp_width):
             # считаем высоту стены, которая зависит от расстояни до неё
-            y_top = int((self.vp_height / 2) - (self.vp_height / self.z_buffer[x]))
+            y_top = int(self.vp_height / 2) - int(self.vp_height / self.z_buffer[x])
             y_bot = self.vp_height - y_top
-            # если x в списке с гранями, то вместо стены будем рисовать эту грань
+            # если x есть в списке с гранями и находится в зоне видимости, то вместо стены будем рисовать эту грань
             if x in self.edges and self.z_buffer[x] < self.depth:
                 wall_char = '|'
             # "красим" стену в зависимости от расстояния до неё
@@ -270,7 +278,8 @@ def main_game(screen):
             player.move_forward()
             # если упёрлись в стену, то откатываем шаг
             # TODO Дописать условие, при котором игрок не перепрыгнет через стену
-            #  (проверка нахождения игрока за полем или перелёт через стену)
+            #  (проверка нахождения игрока за полем или перелёт через стену).
+            #  По идее надо написать метод для бросания одного луча и заюзать его для этого
             if level.is_wall(player.position):
                 player.move_back()
         elif key == ord('s'):
