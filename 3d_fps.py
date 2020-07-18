@@ -234,46 +234,48 @@ class Camera:
 
             self.z_buffer.append(distance_to_wall)
 
+    def draw_column(self, screen, x, y_top, y_bot):
+        # если x есть в списке с гранями и находится в зоне видимости, то вместо стены будем рисовать эту грань
+        if x in self.edges and self.z_buffer[x] < self.depth:
+            wall_char = '|'
+        # "красим" стену в зависимости от расстояния до неё
+        elif self.z_buffer[x] <= self.depth / 3:
+            wall_char = '█'
+        elif self.z_buffer[x] < self.depth / 2:
+            wall_char = '▓'
+        elif self.z_buffer[x] < self.depth / 1.5:
+            wall_char = '▒'
+        elif self.z_buffer[x] < self.depth:
+            wall_char = '░'
+        else:
+            wall_char = ' '
+        for y in range(0, self.vp_height - 1):
+            # рисуем потолок
+            if y in range(0, y_top):
+                screen.addstr(y, x, ' ')
+            # рисуем стену
+            elif y in range(y_top, y_bot):
+                screen.addstr(y, x, wall_char)
+            # рисуем пол. В зависимости от высоты от низа используем те или иные символы
+            elif y >= y_bot:
+                floor_dist = 1 - (y - self.vp_height / 2) / (self.vp_height / 2)
+                if floor_dist < 0.25:
+                    screen.addstr(y, x, '#')
+                elif floor_dist < 0.5:
+                    screen.addstr(y, x, 'x')
+                elif floor_dist < 0.75:
+                    screen.addstr(y, x, '~')
+                elif floor_dist < 0.9:
+                    screen.addstr(y, x, '-')
+                else:
+                    screen.addstr(y, x, ' ')
+
     def render_viewport(self, screen):
         for x in range(0, self.vp_width):
             # считаем высоту стены, которая зависит от расстояни до неё
             y_top = int(self.vp_height / 2) - int(self.vp_height / self.z_buffer[x])
             y_bot = self.vp_height - y_top
-            # если x есть в списке с гранями и находится в зоне видимости, то вместо стены будем рисовать эту грань
-            if x in self.edges and self.z_buffer[x] < self.depth:
-                wall_char = '|'
-            # "красим" стену в зависимости от расстояния до неё
-            elif self.z_buffer[x] <= self.depth / 3:
-                wall_char = '█'
-            elif self.z_buffer[x] < self.depth / 2:
-                wall_char = '▓'
-            elif self.z_buffer[x] < self.depth / 1.5:
-                wall_char = '▒'
-            elif self.z_buffer[x] < self.depth:
-                wall_char = '░'
-            else:
-                wall_char = ' '
-
-            for y in range(0, self.vp_height - 1):
-                # рисуем потолок
-                if y in range(0, y_top):
-                    screen.addstr(y, x, ' ')
-                # рисуем стену
-                elif y in range(y_top, y_bot):
-                    screen.addstr(y, x, wall_char)
-                # рисуем пол. В зависимости от высоты от низа используем те или иные символы
-                elif y >= y_bot:
-                    floor_dist = 1 - (y - self.vp_height / 2) / (self.vp_height / 2)
-                    if floor_dist < 0.25:
-                        screen.addstr(y, x, '#')
-                    elif floor_dist < 0.5:
-                        screen.addstr(y, x, 'x')
-                    elif floor_dist < 0.75:
-                        screen.addstr(y, x, '~')
-                    elif floor_dist < 0.9:
-                        screen.addstr(y, x, '-')
-                    else:
-                        screen.addstr(y, x, ' ')
+            self.draw_column(screen, x, y_top, y_bot)
 
 
 def draw_minimap(screen, position, player, level):
