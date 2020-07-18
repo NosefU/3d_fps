@@ -87,7 +87,10 @@ class Level:
         return self.map[int(point.y) * self.width + int(point.x)]
 
     def check_cell(self, point, cell):
-        return self.get_cell(point) == cell
+        try:
+            return self.get_cell(point) == cell
+        except AssertionError:
+            return False
 
     def is_wall(self, point):
         try:
@@ -158,7 +161,8 @@ class Camera:
         """
         Метод вернёт вектор, направленный в сторону ray_angle;
         модуль вектора будет равняться расстоянию от origin до target, если была найдена коллизия,
-        либо depth, если коллизии не было
+        либо depth, если коллизии не было.
+        По-умолчанию метод ищет коллизию со стеной на расстоянии не более глубины прорисовки
         """
         depth = depth if depth else self.depth
         distance_to_target = 0.0
@@ -171,7 +175,7 @@ class Camera:
             if not level.point_is_present(test_point):
                 distance_to_target = depth
             # проверяем, не упёрся ли вектор в стену
-            elif level.is_wall(test_point):
+            elif level.check_cell(test_point, target):
                 target_hit = True
         return ray
 
