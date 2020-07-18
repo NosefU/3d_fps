@@ -312,6 +312,7 @@ def main_game(screen):
             player.turn_left()
 
         camera.raycast(player, level)
+        screen.clear()
         camera.render_viewport(screen)
 
         draw_minimap(screen, Point(0, 1), player, level)
