@@ -1,6 +1,6 @@
 import math
 import os
-import fps
+import raycast
 import pygame
 from pygame import locals as pgl
 
@@ -100,7 +100,7 @@ class PGCamera:
         level = level if level else self.level
         depth = depth if depth else self.depth
         target = target if target else self.level.wall_chars
-        ray = fps.Vector(origin, ray_angle, 0.0)
+        ray = raycast.Vector(origin, ray_angle, 0.0)
         while ray.length < depth:
             ray.length += 1
             test_point = ray.end_point
@@ -156,8 +156,8 @@ class PGCamera:
                 for block_x in range(0, 2):
                     for block_y in range(0, 2):
                         test_point = current_ray.end_point
-                        edge_pos = fps.Point(int(test_point.x) + block_x, int(test_point.y) + block_y)
-                        edge_vector = fps.Vector(self.player.position, end_point=edge_pos)
+                        edge_pos = raycast.Point(int(test_point.x) + block_x, int(test_point.y) + block_y)
+                        edge_vector = raycast.Vector(self.player.position, end_point=edge_pos)
                         edge_vectors.append(edge_vector)
 
             # если мы прямо сейчас добавим расстояние до стены в z-карту,
@@ -294,7 +294,7 @@ class Interface:
         rays_surface = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
         rect = rays_surface.get_rect()
         for hit in self.camera.hits[::4]:
-            vector = fps.Vector(position, hit.angle - self.camera.player.dir - 90, hit.length * scale)
+            vector = raycast.Vector(position, hit.angle - self.camera.player.dir - 90, hit.length * scale)
             pygame.draw.line(rays_surface, (255, 255, 255, transparency),
                              (vector.start_point.x, vector.start_point.y), (vector.end_point.x, vector.end_point.y), 1)
         pygame.draw.line(rays_surface, (255, 0, 0),
@@ -305,13 +305,13 @@ class Interface:
         """
             Вывод потовротного "радара" препятствий
         """
-        player_vector = fps.Vector(self.camera.player.position, self.camera.player.dir, self.camera.depth * scale)
-        player_endpoint = fps.Point(player_vector.end_point.x + position.x, player_vector.end_point.y + position.y)
-        player_pos = fps.Point(self.camera.player.x + position.x, self.camera.player.y + position.y)
+        player_vector = raycast.Vector(self.camera.player.position, self.camera.player.dir, self.camera.depth * scale)
+        player_endpoint = raycast.Point(player_vector.end_point.x + position.x, player_vector.end_point.y + position.y)
+        player_pos = raycast.Point(self.camera.player.x + position.x, self.camera.player.y + position.y)
 
         for hit in self.camera.hits:
-            vector = fps.Vector(self.camera.player.position, hit.angle, hit.length * scale)
-            hit_pos = fps.Point(vector.end_point.x + position.x, vector.end_point.y + position.y)
+            vector = raycast.Vector(self.camera.player.position, hit.angle, hit.length * scale)
+            hit_pos = raycast.Point(vector.end_point.x + position.x, vector.end_point.y + position.y)
             pygame.draw.line(self.screen, (255, 255, 255, transparency),
                              (player_pos.x, player_pos.y), (hit_pos.x, hit_pos.y), 1)
 
@@ -325,7 +325,7 @@ class Interface:
         # рамка
         frame_width = self.screen.get_width() // 30
         inner_frame_width = self.screen.get_width() // 240
-        right_bot = fps.Point(self.screen.get_width(), self.screen.get_height())
+        right_bot = raycast.Point(self.screen.get_width(), self.screen.get_height())
         # толстая обводка
         pygame.draw.rect(frame, (44, 76, 76),
                          (0, 0, right_bot.x, right_bot.y), frame_width)
@@ -380,9 +380,9 @@ def main_game():
     game_screen = pygame.Surface((480, 360))
     interface_screen = pygame.Surface((480, 360), pygame.SRCALPHA)
 
-    level = fps.Level(*map_size, map_content)
+    level = raycast.Level(*map_size, map_content)
     level.wall_chars = wall_chars
-    player = fps.Player(fps.Point(2.0, 2.0), 45.0)
+    player = raycast.Player(raycast.Point(2.0, 2.0), 45.0)
     camera = PGCamera(game_screen, level, player, fov=60)
     interface = Interface(interface_screen, camera)
     # уменьшим игровой экран на высоту интерфейса,
@@ -421,7 +421,7 @@ def main_game():
         camera.render_viewport()
         interface.draw_hud()
         # interface.draw_minimap(fps.Point(0, 0))
-        interface.draw_rays_fixed(fps.Point(camera.vp_width // 2 + 100, camera.vp_height // 2 + 100))
+        interface.draw_rays_fixed(raycast.Point(camera.vp_width // 2 + 100, camera.vp_height // 2 + 100))
 
         # накладываем игровой и интерфейсный экраны на основной и показываем игроку
         root_screen.blit(game_screen, game_screen.get_rect())
